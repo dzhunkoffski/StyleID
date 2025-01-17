@@ -17,3 +17,11 @@ unzip StyleBench.zip -d StyleBench
 ```bash
 python3 -u run_all_styles.py --content StyleBench/content --styles StyleBench/style --output_path output
 ```
+6. Eval LPIPS score between output and content images:
+```bash
+python eval_lpips.py --output outputs/styleid --content StyleBench/co
+ntent --style StyleBench/style
+```
+7. Eval CLIP score between style and output images:
+```bash
+```

@@ -14,7 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 import logging
 log = logging.getLogger(__name__)
 
-class ImgDataset(Dataset):
+class LpipsImgDataset(Dataset):
     def __init__(self, output_root: str, content_root: str, style_root: str):
         self.content = content_root
         self.style = style_root
@@ -66,7 +66,7 @@ def main(opt):
     device = torch.device(opt.device)
     print(f'------> Will run on device {device}')
 
-    dataset = ImgDataset(
+    dataset = LpipsImgDataset(
         output_root=opt.output, content_root=opt.content, style_root=opt.style
     )
     dataloader = DataLoader(
@@ -79,15 +79,16 @@ def main(opt):
     lpips_score = 0.0
     total_seen = 0
 
-    for output, content in tqdm(dataloader):
-        output = output.to(device)
-        content = content.to(device)
+    with torch.no_grad():
+        for output, content in tqdm(dataloader):
+            output = output.to(device)
+            content = content.to(device)
 
-        curr_batch_size = output.size(0)
-        total_seen += curr_batch_size
+            curr_batch_size = output.size(0)
+            total_seen += curr_batch_size
 
-        score = loss_fn.forward(output, content).sum().item()
-        lpips_score += score
+            score = loss_fn.forward(output, content).sum().item()
+            lpips_score += score
     
     print(f'-----> LPIPS: {lpips_score / total_seen}')
 
