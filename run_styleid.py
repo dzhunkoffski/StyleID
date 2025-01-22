@@ -111,7 +111,13 @@ def main():
     parser.add_argument('--output_path', type=str, default='output')
     parser.add_argument("--without_init_adain", action='store_true')
     parser.add_argument("--without_attn_injection", action='store_true')
+    parser.add_argument("--device", type=int, default=0)
+    parser.add_argument("--alpha", type=float, default=0.0)
+    parser.add_argument("--fuse_before_adain", action="store_true")
+    parser.add_argument("--force_cnt_std_one", action="store_true")
     opt = parser.parse_args()
+
+    torch.cuda.set_device(f'cuda:{opt.device}')
 
     feat_path_root = opt.precomputed
 
@@ -204,7 +210,6 @@ def main():
             sty_feat = copy.deepcopy(feat_maps)
             sty_z_enc = feat_maps[0]['z_enc']
 
-
         for cnt_name in cnt_img_list:
             cnt_name_ = os.path.join(opt.cnt, cnt_name)
             init_cnt = load_img(cnt_name_).to(device)
@@ -226,6 +231,21 @@ def main():
                 cnt_feat = copy.deepcopy(feat_maps)
                 cnt_z_enc = feat_maps[0]['z_enc']
 
+            # [x]: fuse cnt_z_enc with noise
+            print(f'==========> 1) cnt_z mean: {cnt_z_enc.mean()}; cnt_z std: {cnt_z_enc.std()}')
+            if opt.fuse_before_adain:
+                print('!!! Fuse noise before adain')
+                z_T = torch.randn_like(cnt_z_enc)
+                z_T = (1 - opt.alpha) * cnt_z_enc + opt.alpha * z_T
+                cnt_z_enc = cnt_z_enc.std() * (z_T - z_T.mean()) / z_T.std() + cnt_z_enc.mean()
+
+            # [x]: force cnt std to 1:
+            if opt.force_cnt_std_one:
+                cnt_z_enc = cnt_z_enc / cnt_z_enc.std()
+
+            print(f'==========> 2) cnt_z mean: {cnt_z_enc.mean()}; cnt_z std: {cnt_z_enc.std()}')
+            print(f'==========> sty_z mean: {sty_z_enc.mean()}; sty_z std: {sty_z_enc.std()}')
+
             with torch.no_grad():
                 with precision_scope("cuda"):
                     with model.ema_scope():
@@ -233,13 +253,24 @@ def main():
                         output_name = f"{os.path.basename(cnt_name).split('.')[0]}_stylized_{os.path.basename(sty_name).split('.')[0]}.png"
 
                         print(f"Inversion end: {time.time() - begin}")
+
+                        # [x]: Fuse additional noise into 
+
                         if opt.without_init_adain:
                             adain_z_enc = cnt_z_enc
                         else:
                             adain_z_enc = adain(cnt_z_enc, sty_z_enc)
+                        print(f'==========> 1) z_T mean: {adain_z_enc.mean()}; z_T std: {adain_z_enc.std()}')
+                        if not opt.fuse_before_adain:
+                            print('!!! Fuse noise after adain')
+                            z_T = torch.randn_like(adain_z_enc)
+                            z_T = (1 - opt.alpha) * adain_z_enc + opt.alpha * z_T
+                            adain_z_enc = adain_z_enc.std() * (z_T - z_T.mean()) / z_T.std() + adain_z_enc.mean()
+
                         feat_maps = feat_merge(opt, cnt_feat, sty_feat, start_step=start_step)
                         if opt.without_attn_injection:
                             feat_maps = None
+                        print(f'==========> 2) z_T mean: {adain_z_enc.mean()}; z_T std: {adain_z_enc.std()}')
 
                         # inference
                         samples_ddim, intermediates = sampler.sample(S=ddim_steps,
